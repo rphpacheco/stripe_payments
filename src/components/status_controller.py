@@ -14,4 +14,6 @@ def status_controller(df):
     ],
     style={
         "width": "250px",
+        "border": "0.5px solid #2C2D33",
+        "border-radius": "5px",
     })

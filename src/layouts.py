@@ -1,11 +1,9 @@
-import json
 import numpy as np
 from dash import html, callback_context
 import dash_bootstrap_components as dbc
 from dash.dependencies import Input, Output
 from src.app import app
 import pandas as pd
-from datetime import datetime, date
 
 import plotly.express as px
 
@@ -27,6 +25,7 @@ fig = px.bar(
     title="Payments",
     template="plotly_dark",
     labels={"CREATED": "Date", "AMOUNT": "Amount", "STATUS": "Status", "PAYMENTMETHOD": "Method"},
+    hover_data=["AMOUNT", "STATUS", "PAYMENTMETHOD"],
 )
 
 layout = dbc.Container(
@@ -62,9 +61,28 @@ layout = dbc.Container(
                         "color": "#838689",
                     }),
                     html.Div(id="selectors", children=[
+                        html.Button(
+                            id="reset-all-button",
+                            children=[
+                                html.I(
+                                    className="fa-solid fa-undo-alt",
+                                    style={
+                                        "color": "#635bff",
+                                        "font-size": "1.5rem",
+                                    }
+                                ),
+                            ],
+                            style={
+                                "width": "auto",
+                                "background-color": "#1E1E1E",
+                                "padding": "2px 10px 10px 10px",
+                                "border": "0.5px solid #2C2D33",
+                                "border-radius": "5px",
+                            },
+                        ),
                         status_controller(df),
                         controllers(df),
-                        date_picker(),
+                        date_picker(df),
                     ],
                     style={
                         "width": "auto",
@@ -113,6 +131,29 @@ layout = dbc.Container(
                 }
             ),
             dbc.Row([
+                html.Button(
+                    id="reset-graph-button",
+                    children=[
+                        html.I(
+                            className="fa-solid fa-undo-alt",
+                            style={
+                                "margin-right": "10px",
+                                "color": "#635bff",
+                            }
+                        ),
+                        "Reset Filter Graph",
+                    ],
+                    style={
+                        "width": "18em",
+                        "background-color": "#131314",
+                        "color": "#fff",
+                        "font-size": "1.2rem",
+                        "margin": "0px 0px 20px 0px",
+                        "padding": "0px 10px 10px 10px",
+                        "border": "0.5px solid #2C2D33",
+                        "border-radius": "5px",
+                    },
+                ),
                 dcc.Graph(
                     id="graph",
                     figure=fig,
@@ -129,7 +170,14 @@ layout = dbc.Container(
         ])
     ],
     fluid=True,
-)
+)    
+
+def filter_dataframe(df, status, start_date, end_date):
+    if status is None or status == 0:
+        dff = df.loc[(df["CREATED"] >= start_date) & (df["CREATED"] <= end_date)]
+    else:  
+        dff = df.loc[(df["STATUS"] == status) & (df["CREATED"] >= start_date) & (df["CREATED"] <= end_date)]
+    return dff
 
 @app.callback(
     Output("total-payments-amount", "children"),
@@ -152,92 +200,61 @@ layout = dbc.Container(
     Input("date-picker-range", "start_date"),
     Input("date-picker-range", "end_date"),
     Input("graph", "clickData"),
+    Input("reset-all-button", "n_clicks"),
+    Input("reset-graph-button", "n_clicks"),
 )
-def update_status_dropdown(status, start_date, end_date, clickData):
+def update_status_dropdown(status, start_date, end_date, clickData, reset_all_button, reset_graph_button):
     ctx = callback_context
-    print(ctx.args_grouping)
-    # if clickData is None:
-    if start_date is None and end_date is not None:
-        df_dt_filtered = df.loc[df["CREATED"] <= end_date]
-    elif start_date is not None and end_date is None:
-        df_dt_filtered = df.loc[df["CREATED"] >= start_date]
-    elif start_date is not None and end_date is not None:
-        df_dt_filtered = df.loc[(df["CREATED"] >= start_date) & (df["CREATED"] <= end_date)]
-    else:
-        df_dt_filtered = df
-    # else:
-    #     chart_date = clickData['points'][0]['x']
-    #     df_dt_filtered = df.loc[(df["CREATED"] == chart_date)]
-    #     # print(df_dt_filtered.head())
-    #     clickData == None
+
+    dff = filter_dataframe(df, status, start_date, end_date)
+
+    if ctx.triggered[0]["prop_id"] == "reset-all-button.n_clicks":
+        date_min = df["CREATED"].min()
+        date_max = df["CREATED"].max()
+        dff = filter_dataframe(df, None, date_min, date_max)
     
-    amount = df_dt_filtered["AMOUNT"].sum()
+    if ctx.triggered[0]["prop_id"] == "graph.clickData":
+        date_graph = clickData["points"][0]["x"]
+        dff = df.loc[df["CREATED"] == date_graph]
+
+    if ctx.triggered[0]["prop_id"] == "reset-graph-button.n_clicks":
+        dff = filter_dataframe(df, status, start_date, end_date)
+
+
+    amount = dff["AMOUNT"].sum()
     total_prefix = ["Total Payments"]
-    methods_list = df_dt_filtered["PAYMENTMETHOD"].unique()
+    methods_list = df["PAYMENTMETHOD"].unique()
     payment_methods = np.append(total_prefix,methods_list)
-    
-    if 'df' in globals() and status not in ["Success", "Fail"] or status == None:
-        filtered_results = []
-        for method in payment_methods:
-            if method == "Total Payments":
-                filtered_results.append("${:,.2f}".format(df_dt_filtered["AMOUNT"].sum() or 0))
-                filtered_results.append(symbol(round(df_dt_filtered["AMOUNT"].sum() / amount * 100, 2) or 0))
-                filtered_results.append({
-                    "text-align": "right",
-                    "color": "#27ae60",
-                    "font-size": "1.8rem"
-                }),
-            else:
-                filtered_results.append("${:,.2f}".format(df_dt_filtered.loc[df_dt_filtered["PAYMENTMETHOD"] == method]["AMOUNT"].sum() or 0))
-                filtered_results.append(symbol(round(df_dt_filtered.loc[df_dt_filtered["PAYMENTMETHOD"] == method]["AMOUNT"].sum() / amount * 100, 2) or 0))
-                filtered_results.append({
-                    "text-align": "right",
-                    "color": color(round(df_dt_filtered.loc[df_dt_filtered["PAYMENTMETHOD"] == method]["AMOUNT"].sum() / amount * 100, 2) or 0),
-                    "font-size": "1.8rem"
-                })
-        
-        return [ 
-            *filtered_results,
-            px.bar(
-                df_dt_filtered,
-                x="CREATED",
-                y="AMOUNT",
-                color="PAYMENTMETHOD",
-                title="Payments",
-                template="plotly_dark",
-                labels={"CREATED": "Date", "AMOUNT": "Amount", "STATUS": "Status", "PAYMENTMETHOD": "Method"},
-            )
-        ]
-    else:
-        df_filtered = df_dt_filtered.loc[df_dt_filtered["STATUS"] == status, :]
-        filtered_results = []
-        for method in payment_methods:
-            if method == "Total Payments":
-                filtered_results.append("${:,.2f}".format(df_filtered["AMOUNT"].sum() or 0))
-                filtered_results.append(symbol(round(df_filtered["AMOUNT"].sum() / amount * 100, 2) or 0))
-                filtered_results.append({
-                    "text-align": "right",
-                    "color": color(round(df_filtered["AMOUNT"].sum() / amount * 100, 2) or 0),
-                    "font-size": "1.8rem"
-                }),
-            else:
-                filtered_results.append("${:,.2f}".format(df_filtered.loc[df_filtered["PAYMENTMETHOD"] == method]["AMOUNT"].sum() or 0))
-                filtered_results.append(symbol(round(df_filtered.loc[df_filtered["PAYMENTMETHOD"] == method]["AMOUNT"].sum() / amount * 100, 2) or 0))
-                filtered_results.append({
-                    "text-align": "right",
-                    "color": color(round(df_filtered.loc[df_filtered["PAYMENTMETHOD"] == method]["AMOUNT"].sum() / amount * 100, 2) or 0),
-                    "font-size": "1.8rem"
-                })
-        
-        return [ 
-            *filtered_results,
-            px.bar(
-                df_filtered,
-                x="CREATED",
-                y="AMOUNT",
-                color="PAYMENTMETHOD",
-                title="Payments",
-                template="plotly_dark",
-                labels={"CREATED": "Date", "AMOUNT": "Amount", "STATUS": "Status", "PAYMENTMETHOD": "Method"},
-            )
-        ]
+
+    filtered_results = []
+    for method in payment_methods:
+        if method == "Total Payments":
+            filtered_results.append("${:,.2f}".format(dff["AMOUNT"].sum() or 0))
+            filtered_results.append(symbol(round(dff["AMOUNT"].sum() / amount * 100, 2) or 0))
+            filtered_results.append({
+                "text-align": "right",
+                "color": "#27ae60",
+                "font-size": "1.8rem"
+            }),
+        else:
+            filtered_results.append("${:,.2f}".format(dff.loc[dff["PAYMENTMETHOD"] == method]["AMOUNT"].sum() or 0))
+            filtered_results.append(symbol(round(dff.loc[dff["PAYMENTMETHOD"] == method]["AMOUNT"].sum() / amount * 100, 2) or 0))
+            filtered_results.append({
+                "text-align": "right",
+                "color": color(round(dff.loc[dff["PAYMENTMETHOD"] == method]["AMOUNT"].sum() / amount * 100, 2) or 0),
+                "font-size": "1.8rem"
+            })
+
+    return [
+        *filtered_results,
+        px.bar(
+            dff,
+            x="CREATED",
+            y="AMOUNT",
+            color="PAYMENTMETHOD",
+            title="Payments",
+            template="plotly_dark",
+            labels={"CREATED": "Date", "AMOUNT": "Amount", "STATUS": "Status", "PAYMENTMETHOD": "Method"},
+            hover_data=["AMOUNT", "STATUS", "PAYMENTMETHOD"],
+        )
+    ]
